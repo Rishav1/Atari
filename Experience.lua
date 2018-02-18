@@ -25,6 +25,7 @@ function Experience:_init(capacity, opt, isValidation)
   self.transTuples = {
     states = opt.Tensor(bufferStateSize),
     actions = torch.ByteTensor(opt.batchSize),
+    masks = opt.Tensor(capacity, self.heads),
     rewards = opt.Tensor(opt.batchSize),
     transitions = opt.Tensor(bufferStateSize),
     terminals = torch.ByteTensor(opt.batchSize),
@@ -49,7 +50,7 @@ function Experience:_init(capacity, opt, isValidation)
   -- Validation flags (used if state is stored without transition)
   self.invalid = torch.ByteTensor(capacity) -- 1 is used to denote invalid
   -- Internal pointer
-  self.masks = torch.ByteTensor(capacity, self.heads):fill(0)
+  self.masks = opt.Tensor(capacity, self.heads):fill(0)
   -- Masking flags for Bootstrap heads
   self.allIndexes = torch.LongTensor():range(1,capacity)
   -- Used during finding unmasked samples for bootstrap head
@@ -185,6 +186,8 @@ function Experience:retrieve(indices)
     self.transTuples.rewards[n] = self.rewards[memIndex]
     -- Retrieve terminal status (of transition)
     self.transTuples.terminals[n] = self.terminals[self:circIndex(memIndex + 1)]
+    -- Retrive masks
+    self.transTuples.masks[n] = self.masks[memIndex]
 
     -- Go back in history whilst episode exists
     local histIndex = self.histLen
@@ -216,7 +219,7 @@ function Experience:retrieve(indices)
     end
   end
 
-  return self.transTuples.states[{{1, N}}], self.transTuples.actions[{{1, N}}], self.transTuples.rewards[{{1, N}}], self.transTuples.transitions[{{1, N}}], self.transTuples.terminals[{{1, N}}]
+  return self.transTuples.states[{{1, N}}], self.transTuples.actions[{{1, N}}], self.transTuples.rewards[{{1, N}}], self.transTuples.transitions[{{1, N}}], self.transTuples.terminals[{{1, N}}], self.transTuples.masks[{{1, N}}]
 end
 
 -- Determines if an index points to a valid transition state
@@ -227,17 +230,10 @@ function Experience:validateTransition(index)
   return self.terminals[index] == 0 and self.invalid[index] == 0 and (self.index <= minIndex or self.index >= maxIndex)
 end
 
--- Determines if an index points to a masked state
-function Experience:isUnmasked(index, head)
-  return self.masks[index][head] == 1
-end
 
 -- Returns indices and importance-sampling weights based on (stochastic) proportional prioritised sampling
-function Experience:sample(head)
+function Experience:sample()
   local N = self.size
-  local unmaskedIndexes = self.allIndexes[self.masks[{{},head}]]
-  local M = unmaskedIndexes:size(1)
-
   -- Priority 'none' = uniform sampling
   if not self.memPriority then
 
@@ -248,8 +244,8 @@ function Experience:sample(head)
 
       -- Generate random index until valid transition found
       while not isValid do
-        index = torch.random(1, M)
-        isValid = self:validateTransition(unmaskedIndexes[index])
+        index = torch.random(1, N)
+        isValid = self:validateTransition(index)
       end
 
       -- Store index

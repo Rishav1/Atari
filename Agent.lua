@@ -233,12 +233,12 @@ function Agent:observe(reward, rawObservation, terminal)
   if self.isTraining then
     -- Store experience tuple parts (including pre-emptive action)
 
-    local defaultMask = torch.ByteTensor(self.heads):fill(1) -- By default, the no head is masked
+    local defaultMask = torch.ByteTensor(self.heads):fill(0):scatter(1, torch.LongTensor{1}, 1) -- By default, only the current head is unmasked
     local mask = defaultMask:clone()
     if self.bootstraps > 0 then
-      mask = mask:bernoulli(0.5) -- Sample a mask for bootstrap using p = 0.5; Given in  https://arxiv.org/pdf/1602.04621.pdf
+      mask = torch.add(mask:bernoulli(0.5), defaultMask):ge(1) -- Sample a mask for bootstrap using p = 0.5; Given in  https://arxiv.org/pdf/1602.04621.pdf
     end
-    self.memory:store(reward, observation, terminal, aIndex, mask) -- TODO: Sample independent Bernoulli(p) bootstrap masks for all heads; p = 1 means no masks needed
+    self.memory:store(reward, observation, terminal, aIndex, mask)
 
     -- Collect validation transitions at the start
     if self.globals.step <= self.valSize + 1 then
@@ -246,10 +246,10 @@ function Agent:observe(reward, rawObservation, terminal)
     end
 
     -- Sample uniformly or with prioritised sampling
-    if self.globals.step % self.memSampleFreq == 0 and self.globals.step >= self.learnStart then
+    if self.globals.step % self.memSampleFreq == 0 and self.globals.step > self.learnStart then
       for n = 1, self.memNSamples do
         -- Optimise (learn) from experience tuples
-        self:optimise(self.memory:sample(self.head))
+          self:optimise(self.memory:sample())
       end
     end
 
@@ -290,7 +290,7 @@ function Agent:learn(x, indices, ISWeights, isValidation)
 
   -- Retrieve experience tuples
   local memory = isValidation and self.valMemory or self.memory
-  local states, actions, rewards, transitions, terminals = memory:retrieve(indices) -- Terminal status is for transition (can't act in terminal state)
+  local states, actions, rewards, transitions, terminals, masks = memory:retrieve(indices) -- Terminal status is for transition (can't act in terminal state)
   local N = actions:size(1)
 
   if self.recurrent then
@@ -393,7 +393,7 @@ function Agent:learn(x, indices, ISWeights, isValidation)
   -- Set TD-errors δ with given actions
   for n = 1, N do
     -- Correct prioritisation bias with importance-sampling weights
-    QCurr[n][{{}, {actions[n]}}] = torch.mul(-self.tdErr[n], ISWeights[n]) -- Negate target to use gradient descent (not ascent) optimisers
+    QCurr[n][{{}, {actions[n]}}]:addcmul(ISWeights[n], -self.tdErr[n], masks[n]) -- Negate target to use gradient descent (not ascent) optimisers
   end
 
   -- Backpropagate (network accumulates gradients internally)
@@ -505,7 +505,7 @@ function Agent:validate()
   self.avgTdErr[#self.avgTdErr + 1] = totalTdErr / self.valSize
 
   -- Plot and save losses
-  if #self.losses > 0 then
+  if #self.losses > 1 then
     local losses = torch.Tensor(self.losses)
     gnuplot.pngfigure(paths.concat(self.experiments, self._id, 'losses.png'))
     gnuplot.plot('Loss', torch.linspace(math.floor(self.learnStart/self.progFreq), math.floor(self.globals.step/self.progFreq), #self.losses), losses, '-')

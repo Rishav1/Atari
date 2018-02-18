@@ -95,12 +95,12 @@ function Setup:parseOptions(arg)
   cmd:option('-hiddenSize', 512, 'Number of units in the hidden fully connected layer')
   cmd:option('-histLen', 4, 'Number of consecutive states processed/used for backpropagation-through-time') -- DQN standard is 4, DRQN is 10
   cmd:option('-duel', 'true', 'Use dueling network architecture (learns advantage function)')
-  cmd:option('-bootstraps', 10, 'Number of bootstrap heads (0 to disable)')
+  cmd:option('-bootstraps', 3, 'Number of bootstrap heads (0 to disable)')
   --cmd:option('-bootstrapMask', 1, 'Independent probability of masking a transition for each bootstrap head ~ Ber(bootstrapMask) (1 to disable)')
   cmd:option('-recurrent', 'false', 'Use recurrent connections')
   -- Experience replay options
   cmd:option('-discretiseMem', 'true', 'Discretise states to integers ∈ [0, 255] for storage')
-  cmd:option('-memSize', 1e6, 'Experience replay memory size (number of tuples)')
+  cmd:option('-memSize', 2e5, 'Experience replay memory size (number of tuples)')
   cmd:option('-memSampleFreq', 4, 'Interval of steps between sampling from memory to learn')
   cmd:option('-memNSamples', 1, 'Number of times to sample per learning step')
   cmd:option('-memPriority', '', 'Type of prioritised experience replay: <none>|rank|proportional') -- TODO: Implement proportional prioritised experience replay
@@ -110,7 +110,7 @@ function Setup:parseOptions(arg)
   cmd:option('-gamma', 0.99, 'Discount rate γ')
   cmd:option('-epsilonStart', 1, 'Initial value of greediness ε')
   cmd:option('-epsilonEnd', 0.01, 'Final value of greediness ε') -- Tuned DDQN final greediness (1/10 that of DQN)
-  cmd:option('-epsilonSteps', 1e6, 'Number of steps to linearly decay epsilonStart to epsilonEnd') -- Usually same as memory size
+  cmd:option('-epsilonSteps', 2e5, 'Number of steps to linearly decay epsilonStart to epsilonEnd') -- Usually same as memory size
   cmd:option('-tau', 30000, 'Steps between target net updates τ') -- Tuned DDQN target net update interval (3x that of DQN)
   cmd:option('-rewardClip', 1, 'Clips reward magnitude at rewardClip (0 to disable)')
   cmd:option('-tdClip', 1, 'Clips TD-error δ magnitude at tdClip (0 to disable)')
@@ -130,7 +130,7 @@ function Setup:parseOptions(arg)
   cmd:option('-reportWeights', 'false', 'Report weight and weight gradient statistics')
   cmd:option('-noValidation', 'false', 'Disable asynchronous agent validation thread') -- TODO: Make behaviour consistent across Master/AsyncMaster
   cmd:option('-valFreq', 250000, 'Interval of steps between validating agent') -- valFreq steps is used as an epoch, hence #epochs = steps/valFreq
-  cmd:option('-valSteps', 125000, 'Number of steps to use for validation')
+  cmd:option('-valSteps', 25000, 'Number of steps to use for validation')
   cmd:option('-valSize', 500, 'Number of transitions to use for calculating validation statistics')
   -- Async options
   cmd:option('-async', '', 'Async agent: <none>|Sarsa|OneStepQ|NStepQ|A3C') -- TODO: Change names

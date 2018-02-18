@@ -138,6 +138,9 @@ function Master:train()
     if not self.noValidation and step >= self.learnStart and step % self.valFreq == 0 then
       self.validation:validate(step) -- Sets env and agent to evaluation mode and then back to training mode
 
+      log.info('Saving agent')
+      torch.save(paths.concat(self.experiments, self._id, 'agent.t7'), self.agent) -- Save agent to resume training
+
       log.info('Resuming training')
       -- Start new game (as previous one was interrupted)
       reward, state, terminal = 0, self.env:start(), false

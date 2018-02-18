@@ -1,6 +1,7 @@
 local _ = require 'moses'
 local classic = require 'classic'
 local Evaluator = require 'Evaluator'
+local generateGraph = require 'optnet.graphgen'
 
 local Validation = classic.class('Validation')
 
@@ -19,6 +20,13 @@ function Validation:_init(opt, agent, env, display)
   self.evaluator = Evaluator(opt.game)
 
   self.bestValScore = _.max(self.agent.valScores) or -math.huge -- Retrieve best validation score from agent if available
+
+  self.graphOpts = {
+    displayProps =  {shape='ellipse',fontsize=14, style='solid'},
+    nodeData = function(oldData, tensor)
+      return oldData .. '\n' .. 'Size: '.. tensor:numel()
+    end
+  }
 
   classic.strict(self)
 end
@@ -108,7 +116,12 @@ function Validation:validate(step)
     log.info('Saving new best weights')
     self.agent:saveWeights(paths.concat(self.opt.experiments, self.opt._id, 'best.weights.t7'))
   end
-  
+
+  log.info('Saving network visual')
+  local input = self.agent.memory:retrieve(self.agent.memory:sample())
+  local netVisName = paths.concat(self.opt.experiments, self.opt._id, 'policyNet')
+  graph.dot(generateGraph(self.agent.policyNet, input, self.graphOpts), netVisName, netVisName)
+
   -- Set environment and agent to training mode
   self.env:training()
   self.agent:training()

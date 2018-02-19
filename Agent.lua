@@ -137,7 +137,7 @@ function Agent:evaluate()
     self.policyNet:forget()
   end
 end
-  
+
 -- Observes the results of the previous transition and chooses the next action to perform
 function Agent:observe(reward, rawObservation, terminal)
   -- Clip reward for stability
@@ -189,7 +189,7 @@ function Agent:observe(reward, rawObservation, terminal)
       if self.saliency then
         self:computeSaliency(state, aIndex, true)
       end
-    elseif torch.uniform() < epsilon then 
+    elseif torch.uniform() < epsilon then
       -- Choose action by ε-greedy exploration (even with bootstraps)
       aIndex = torch.random(1, self.m)
 
@@ -233,7 +233,7 @@ function Agent:observe(reward, rawObservation, terminal)
   if self.isTraining then
     -- Store experience tuple parts (including pre-emptive action)
 
-    local defaultMask = torch.ByteTensor(self.heads):fill(0):scatter(1, torch.LongTensor{1}, 1) -- By default, only the current head is unmasked
+    local defaultMask = torch.ByteTensor(self.heads):fill(0):scatter(1, torch.LongTensor{self.head}, 1) -- By default, only the current head is unmasked
     local mask = defaultMask:clone()
     if self.bootstraps > 0 then
       mask = torch.add(mask:bernoulli(0.5), defaultMask):ge(1) -- Sample a mask for bootstrap using p = 0.5; Given in  https://arxiv.org/pdf/1602.04621.pdf
@@ -387,7 +387,7 @@ function Agent:learn(x, indices, ISWeights, isValidation)
 
   -- Send TD-errors δ to be used as priorities
   self.memory:updatePriorities(indices, torch.mean(self.tdErr, 2)) -- Use average error over heads
-  
+
   -- Zero QCurr outputs (no error)
   QCurr:zero()
   -- Set TD-errors δ with given actions
@@ -419,7 +419,7 @@ function Agent:optimise(indices, ISWeights)
   local feval = function(x)
     return self:learn(x, indices, ISWeights)
   end
-  
+
   -- Optimise
   local __, loss = optim[self.optimiser](feval, self.theta, self.optimParams)
   -- Store loss
@@ -445,7 +445,7 @@ function Agent:report()
   end
   local fcLayers = self.policyNet:findModules('nn.Linear')
   weightLayers = _.append(weightLayers, fcLayers)
-  
+
   -- Array of norms and maxima
   local wNorms = {}
   local wMaxima = {}

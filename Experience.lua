@@ -26,7 +26,7 @@ function Experience:_init(capacity, opt, isValidation)
     states = opt.Tensor(bufferStateSize),
     actions = torch.ByteTensor(opt.batchSize),
     masks = opt.Tensor(capacity, self.heads),
-    rewards = opt.Tensor(opt.batchSize),
+    rewards = opt.Tensor(opt.batchSize, 1),
     transitions = opt.Tensor(bufferStateSize),
     terminals = torch.ByteTensor(opt.batchSize),
     priorities = opt.Tensor(opt.batchSize)
@@ -306,7 +306,7 @@ function Experience:updatePriorities(indices, delta)
     end
 
     for p = 1, indices:size(1) do
-      self.priorityQueue:updateByVal(indices[p], priorities[p], indices[p]) 
+      self.priorityQueue:updateByVal(indices[p], priorities[p], indices[p])
     end
   end
 end

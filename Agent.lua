@@ -39,6 +39,7 @@ function Agent:_init(opt)
   self.bootstraps = opt.bootstraps
   self.head = 1 -- Identity of current episode bootstrap head
   self.heads = math.max(opt.bootstraps, 1) -- Number of heads
+  self.swarm = opt.swarm
 
   -- Recurrency
   self.recurrent = opt.recurrent
@@ -138,6 +139,25 @@ function Agent:evaluate()
   end
 end
 
+function Agent:set_cover(actionSet)
+  local nheads = actionSet:size()[1]
+  local nactions = actionSet:size()[2]
+  local notInUniverse = self.Tensor(nheads, 1):fill(0)
+  local notCovered = self.Tensor(nheads, 1):fill(1)
+  local cover = self.Tensor(1, nactions):fill(0)
+
+  while not torch.all(notCovered:eq(notInUniverse)) do
+    local allowedActions = torch.cmul(actionSet, notCovered:repeatTensor(1, nactions))
+    local _, maxIndex = allowedActions:sum(1):max(2)
+    cover[1][maxIndex[1][1]] = 1
+    notCovered = torch.cmul(notCovered, 1 - actionSet:select(2, maxIndex[1][1]))
+  end
+
+  local _, swarmActions = torch.max(torch.cmul(actionSet, cover:repeatTensor(nheads, 1)), 2)
+
+  return swarmActions
+end
+
 -- Observes the results of the previous transition and chooses the next action to perform
 function Agent:observe(reward, rawObservation, terminal)
   -- Clip reward for stability
@@ -204,27 +224,42 @@ function Agent:observe(reward, rawObservation, terminal)
       end
     else
       -- Retrieve estimates from all heads
-      local QHeads = self.policyNet:forward(state)
+      if self.swarm then
+        local QHeadsCurrent = self.policyNet:forward(state)
+        local QHeadsTarget = self.targetNet:forward(state)
 
-      -- Sample from current episode head (indexes on first dimension with no batch)
-      local Qs = QHeads:select(1, self.head)
-      local maxQ = Qs[1]
-      local bestAs = {1}
-      -- Find best actions
-      for a = 2, self.m do
-        if Qs[a] > maxQ then
-          maxQ = Qs[a]
-          bestAs = {a}
-        elseif Qs[a] == maxQ then -- Ties can occur even with floats
-          bestAs[#bestAs + 1] = a
+        local QHeadsTargetMax, QHeadsTargetInds = QHeadsTarget:max(2)
+        local QHeadsCurrentCutoff = QHeadsCurrent:gather(2, QHeadsTargetInds)
+        local actionSet = (QHeadsCurrent - QHeadsCurrentCutoff:repeatTensor(1, self.m)):ge(0)
+
+        local swarmActions = self:set_cover(actionSet:cuda())
+
+        aIndex = swarmActions[self.head][1]
+        swarmMask = swarmActions:eq(aIndex)
+        
+      else
+        local QHeads = self.policyNet:forward(state)
+
+        -- Sample from current episode head (indexes on first dimension with no batch)
+        local Qs = QHeads:select(1, self.head)
+        local maxQ = Qs[1]
+        local bestAs = {1}
+        -- Find best actions
+        for a = 2, self.m do
+          if Qs[a] > maxQ then
+            maxQ = Qs[a]
+            bestAs = {a}
+          elseif Qs[a] == maxQ then -- Ties can occur even with floats
+            bestAs[#bestAs + 1] = a
+          end
         end
-      end
-      -- Perform random tie-breaking (if more than one argmax action)
-      aIndex = bestAs[torch.random(1, #bestAs)]
+        -- Perform random tie-breaking (if more than one argmax action)
+        aIndex = bestAs[torch.random(1, #bestAs)]
 
-      -- Compute saliency
-      if self.saliency then
-        self:computeSaliency(state, aIndex, false)
+        -- Compute saliency
+        if self.saliency then
+          self:computeSaliency(state, aIndex, false)
+        end
       end
     end
   end
@@ -236,7 +271,11 @@ function Agent:observe(reward, rawObservation, terminal)
     local defaultMask = torch.ByteTensor(self.heads):fill(0):scatter(1, torch.LongTensor{self.head}, 1) -- By default, only the current head is unmasked
     local mask = defaultMask:clone()
     if self.bootstraps > 0 then
-      mask = torch.add(mask:bernoulli(0.5), defaultMask):ge(1) -- Sample a mask for bootstrap using p = 0.5; Given in  https://arxiv.org/pdf/1602.04621.pdf
+      if self.swarmMask then
+        mask = swarmMask
+      else
+        mask = torch.add(mask:bernoulli(0.5), defaultMask):ge(1) -- Sample a mask for bootstrap using p = 0.5; Given in  https://arxiv.org/pdf/1602.04621.pdf
+      end
     end
     self.memory:store(reward, observation, terminal, aIndex, mask)
 

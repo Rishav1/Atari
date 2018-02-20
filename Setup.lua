@@ -96,6 +96,7 @@ function Setup:parseOptions(arg)
   cmd:option('-histLen', 4, 'Number of consecutive states processed/used for backpropagation-through-time') -- DQN standard is 4, DRQN is 10
   cmd:option('-duel', 'true', 'Use dueling network architecture (learns advantage function)')
   cmd:option('-bootstraps', 3, 'Number of bootstrap heads (0 to disable)')
+  cmd:option('-swarm', 'false', 'Use swarm optimal policy update with bootstrap')
   --cmd:option('-bootstrapMask', 1, 'Independent probability of masking a transition for each bootstrap head ~ Ber(bootstrapMask) (1 to disable)')
   cmd:option('-recurrent', 'false', 'Use recurrent connections')
   -- Experience replay options
@@ -161,6 +162,7 @@ function Setup:parseOptions(arg)
   opt.discretiseMem = opt.discretiseMem == 'true'
   opt.doubleQ = opt.doubleQ == 'true'
   opt.reportWeights = opt.reportWeights == 'true'
+  opt.swarm = opt.swarm == 'true'
   opt.fullActions = opt.fullActions == 'true'
   opt.lifeLossTerminal = opt.lifeLossTerminal == 'true'
   opt.checkpoint = opt.checkpoint == 'true'
@@ -244,6 +246,9 @@ function Setup:validateOptions()
 
   -- Check no prioritized replay is done when bootstrap
   abortIf(self.opt.bootstraps > 0 and _.contains({'rank', 'proportional'}, self.opt.memPriority), 'Prioritized experience replay not possible with bootstrap')
+
+  -- Check no swarm policy update without bootstrap
+  abortIf(self.opt.swarm and not (self.opt.bootstraps > 0))
 
   -- Check start of learning occurs after at least 1/100 of memory has been filled
   abortIf(self.opt.learnStart <= self.opt.memSize/100, 'learnStart must be greater than memSize/100')

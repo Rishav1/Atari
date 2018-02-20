@@ -36,18 +36,18 @@ function Master:_init(opt)
     self.agent:loadWeights(opt.network)
   elseif paths.filep(paths.concat(opt.experiments, opt._id, 'agent.t7')) then
     -- Ask to load saved agent if found in experiment folder (resuming training)
-    log.info('Saved agent found - load (y/n)?')
-    if io.read() == 'y' then
-      log.info('Loading saved agent')
-      self.agent = torch.load(paths.concat(opt.experiments, opt._id, 'agent.t7'))
+    -- log.info('Saved agent found - load (y/n)?')
+    -- if io.read() == 'y' then
+    log.info('Loading saved agent')
+    self.agent = torch.load(paths.concat(opt.experiments, opt._id, 'agent.t7'))
 
-      -- Reset globals (step) from agent
-      Singleton.setInstance(self.agent.globals)
-      self.globals = Singleton.getInstance()
+    -- Reset globals (step) from agent
+    Singleton.setInstance(self.agent.globals)
+    self.globals = Singleton.getInstance()
 
-      -- Switch saliency style
-      self.agent:setSaliency(opt.saliency)
-    end
+    -- Switch saliency style
+    self.agent:setSaliency(opt.saliency)
+    -- end
   end
 
   -- Start gaming

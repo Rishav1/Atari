@@ -374,8 +374,9 @@ function Agent:learn(x, indices, ISWeights, isValidation)
     -- Perform clustering using approximate greedy set cover
     local actionSets = (self.QPrimes - QPrimesCurrentCutoff:repeatTensor(1, 1, self.m)):ge(0)	
     local swarmActions = self:sets_cover(actionSets:cuda())
+    -- Set indexes as the swarmIndexes
+    APrimeMaxInds = swarmActions
 
-    -- Calculate Q-values fro
   elseif self.doubleQ then
     -- Calculate Q-values from transition using policy network
     self.QPrimes = self.policyNet:forward(transitions) -- Find argmax actions using policy network

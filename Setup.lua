@@ -95,7 +95,7 @@ function Setup:parseOptions(arg)
   cmd:option('-hiddenSize', 512, 'Number of units in the hidden fully connected layer')
   cmd:option('-histLen', 4, 'Number of consecutive states processed/used for backpropagation-through-time') -- DQN standard is 4, DRQN is 10
   cmd:option('-duel', 'true', 'Use dueling network architecture (learns advantage function)')
-  cmd:option('-bootstraps', 3, 'Number of bootstrap heads (0 to disable)')
+  cmd:option('-bootstraps', 10, 'Number of bootstrap heads (0 to disable)')
   cmd:option('-swarm', 'false', 'Use swarm optimal policy update with bootstrap')
   --cmd:option('-bootstrapMask', 1, 'Independent probability of masking a transition for each bootstrap head ~ Ber(bootstrapMask) (1 to disable)')
   cmd:option('-recurrent', 'false', 'Use recurrent connections')

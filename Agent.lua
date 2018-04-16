@@ -137,6 +137,26 @@ function Agent:evaluate()
   if self.recurrent then
     self.policyNet:forget()
   end
+end  
+
+function Agent:sets_cover(actionSets)
+  local batchSize = actionSets:size()[1]
+  local nheads = actionSets:size()[2]
+  local nactions = actionSets:size()[3]
+  local notInUniverse = self.Tensor(batchSize, nheads, 1):fill(0)
+  local notCovered = self.Tensor(batchSize, nheads, 1):fill(1)
+  local cover = self.Tensor(batchSize, 1, nactions):fill(0)
+
+  while not torch.all(notCovered:eq(notInUniverse)) do
+    local allowedActions = torch.cmul(actionSets, notCovered:repeatTensor(1, 1, nactions))
+    local _, maxIndexes = allowedActions:sum(2):max(3)
+    cover = cover:scatter(3, maxIndexes, self.Tensor(maxIndexes:size()):fill(1))
+    notCovered = torch.cmul(notCovered, 1 - actionSets:gather(3, maxIndexes:repeatTensor(1, nheads, 1)))
+  end
+ 
+  local _, swarmActions = torch.max(torch.cmul(actionSets, cover:repeatTensor(1, nheads, 1)), 3)
+
+  return swarmActions
 end
 
 function Agent:set_cover(actionSet)
@@ -236,7 +256,7 @@ function Agent:observe(reward, rawObservation, terminal)
 
         aIndex = swarmActions[self.head][1]
         swarmMask = swarmActions:eq(aIndex)
-        
+
       else
         local QHeads = self.policyNet:forward(state)
 
@@ -314,6 +334,9 @@ function Agent:observe(reward, rawObservation, terminal)
     end
   end
 
+  -- Collect garbage
+  collectgarbage()
+
   -- Return action index with offset applied
   return aIndex - self.actionOffset
 end
@@ -340,7 +363,21 @@ function Agent:learn(x, indices, ISWeights, isValidation)
 
   -- Perform argmax action selection
   local APrimeMax, APrimeMaxInds
-  if self.doubleQ then
+  if self.swarm then
+    -- Calculate Q-values using target network
+    local QPrimesTarget = self.targetNet:forward(transitions)
+    -- Calculate Q-values using policy network
+    self.QPrimes = self.policyNet:forward(transitions)
+    -- Find Target best Q-values
+    APrimeMax, APrimeMaxInds = torch.max(QPrimesTarget, 3)
+    local QPrimesCurrentCutoff = self.QPrimes:gather(3, APrimeMaxInds)
+    -- Perform clustering using approximate greedy set cover
+    local actionSets = (self.QPrimes - QPrimesCurrentCutoff:repeatTensor(1, 1, self.m)):ge(0)	
+    local swarmActions = self:sets_cover(actionSets:cuda())
+    -- Set indexes as the swarmIndexes
+    APrimeMaxInds = swarmActions
+
+  elseif self.doubleQ then
     -- Calculate Q-values from transition using policy network
     self.QPrimes = self.policyNet:forward(transitions) -- Find argmax actions using policy network
     -- Perform argmax action selection on transition using policy network: argmax_a[Q(s', a; θpolicy)]

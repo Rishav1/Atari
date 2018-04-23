@@ -2,7 +2,7 @@ function optim.sharedRmsProp(opfunc, x, config, state)
   -- Get state
   local config = config or {}
   local state = state or config
-  local lr = config.learningRate or 1e-2
+  local lr = config.eta or 1e-2
   local momentum = config.momentum or 0.95
   local epsilon = config.rmsEpsilon or 0.01
 

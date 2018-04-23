@@ -123,7 +123,7 @@ function Setup:parseOptions(arg)
   cmd:option('-eta', 0.0000625, 'Learning rate η') -- Prioritied experience replay learning rate (1/4 that of DQN; does not account for Duel as well)
   cmd:option('-momentum', 0.95, 'Gradient descent momentum')
   cmd:option('-batchSize', 32, 'Minibatch size')
-  cmd:option('-steps', 5e7, 'Training iterations (steps)') -- Frame := step in ALE; Time step := consecutive frames treated atomically by the agent
+  cmd:option('-steps', 2e7, 'Training iterations (steps)') -- Frame := step in ALE; Time step := consecutive frames treated atomically by the agent
   cmd:option('-learnStart', 50000, 'Number of steps after which learning starts')
   cmd:option('-gradClip', 10, 'Clips L2 norm of gradients at gradClip (0 to disable)')
   -- Evaluation options

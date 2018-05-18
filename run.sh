@@ -58,7 +58,7 @@ elif [ "$PAPER" == "bootstrap" ]; then
   th main.lua -env rlenvs.Atari -modelBody models.Atari -game $GAME -cudnn true -height 84 -width 84 -colorSpace y -duel false -tau 10000 -PALpha 0 -eta 0.00025 -gradClip 0 "$@"
 elif [ "$PAPER" == "swarm" ]; then
   # Swarm
-  th main.lua -env rlenvs.Atari -modelBody models.Atari -game $GAME -cudnn true -height 84 -width 84 -colorSpace y -duel false -tau 10000 -PALpha 0 -eta 0.00025 -gradClip 0 -swarm true "$@"
+  th main.lua -env rlenvs.Atari -modelBody models.Atari -game $GAME -cudnn true -height 84 -width 84 -colorSpace y -duel false -tau 1000 -PALpha 0 -eta 0.00025 -gradClip 0 -swarm true "$@"
 elif [ "$PAPER" == "recurrent" ]; then
   # Recurrent (note that evaluation methodology is different)
   th main.lua -env rlenvs.Atari -modelBody models.Atari -game $GAME -cudnn true -height 84 -width 84 -colorSpace y -histLen 10 -duel false -bootstraps 0 -recurrent true -memSize 400000 -memSampleFreq 1 -epsilonEnd 0.1 -tau 10000 -doubleQ false -PALpha 0 -optimiser adadelta -eta 0.1 "$@"

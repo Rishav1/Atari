@@ -248,7 +248,7 @@ function Setup:validateOptions()
   abortIf(self.opt.bootstraps > 0 and _.contains({'rank', 'proportional'}, self.opt.memPriority), 'Prioritized experience replay not possible with bootstrap')
 
   -- Check no swarm policy update without bootstrap
-  abortIf(self.opt.swarm and not (self.opt.bootstraps > 0))
+  abortIf(self.opt.swarm and not (self.opt.bootstraps > 0), 'swarm not possible with 0 bootstrap heads')
 
   -- Check start of learning occurs after at least 1/100 of memory has been filled
   abortIf(self.opt.learnStart <= self.opt.memSize/100, 'learnStart must be greater than memSize/100')

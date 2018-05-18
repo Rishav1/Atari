@@ -155,7 +155,6 @@ function Agent:sets_cover(actionSets)
   end
  
   local _, swarmActions = torch.max(torch.cmul(actionSets, cover:repeatTensor(1, nheads, 1)), 3)
-
   return swarmActions
 end
 
@@ -174,7 +173,8 @@ function Agent:set_cover(actionSet)
   end
 
   local _, swarmActions = torch.max(torch.cmul(actionSet, cover:repeatTensor(nheads, 1)), 2)
-
+  --print(actionSet)
+  --print(cover)
   return swarmActions
 end
 
@@ -251,6 +251,8 @@ function Agent:observe(reward, rawObservation, terminal)
         local QHeadsTargetMax, QHeadsTargetInds = QHeadsTarget:max(2)
         local QHeadsCurrentCutoff = QHeadsCurrent:gather(2, QHeadsTargetInds)
         local actionSet = (QHeadsCurrent - QHeadsCurrentCutoff:repeatTensor(1, self.m)):ge(0)
+	--print(QHeadsCurrent)
+	--print(QHeadsTarget)
 
         local swarmActions = self:set_cover(actionSet:cuda())
 

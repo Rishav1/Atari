@@ -76,7 +76,7 @@ function Setup:parseOptions(arg)
   local cmd = torch.CmdLine()
   -- Base Torch7 options
   cmd:option('-seed', 1, 'Random seed')
-  cmd:option('-threads', 4, 'Number of BLAS or async threads')
+  cmd:option('-threads', 32, 'Number of BLAS or async threads')
   cmd:option('-tensorType', 'torch.FloatTensor', 'Default tensor type')
   cmd:option('-gpu', cuda and 1 or 0, 'GPU device ID (0 to disable)')
   cmd:option('-cudnn', 'false', 'Utilise cuDNN (if available)')

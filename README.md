@@ -29,6 +29,7 @@ Requires [Torch7](http://torch.ch/), and can use CUDA and cuDNN if available. Al
 - luaposix 33.4.0
 - luasocket
 - moses
+- opnet
 - logroll
 - classic
 - torchx

@@ -40,7 +40,9 @@ function Agent:_init(opt)
   self.head = 1 -- Identity of current episode bootstrap head
   self.heads = math.max(opt.bootstraps, 1) -- Number of heads
   self.swarm = opt.swarm
-
+  self.action_coverage = opt.action_coverage
+  self.agent_coverage = opt.agent_coverage
+  self.reverse = opt.reverse
   -- Recurrency
   self.recurrent = opt.recurrent
   self.histLen = opt.histLen
@@ -75,6 +77,7 @@ function Agent:_init(opt)
     learningRate = opt.eta,
     momentum = opt.momentum
   }
+  self.trainScores = {}
 
   -- Q-learning variables (per head)
   self.QPrimes = opt.Tensor(opt.batchSize, self.heads, self.m)
@@ -92,6 +95,7 @@ function Agent:_init(opt)
 
   -- Tensor creation
   self.Tensor = opt.Tensor
+  self.ByteTensor = opt.ByteTensor
 
   -- Saliency display
   self:setSaliency(opt.saliency) -- Set saliency option on agent and model
@@ -138,6 +142,64 @@ function Agent:evaluate()
     self.policyNet:forget()
   end
 end  
+
+function Agent:sample_action_sets(states)
+  local s = states
+  local actionSets = {}
+  if not s then
+    s = self.memory:retrieve(self.memory:sample())
+  end
+  local QPrimesTarget = self.targetNet:forward(s)
+  -- Calculate Q-values using policy network
+  local QPrimesCurrent = self.policyNet:forward(s)
+  -- Find Target best Q-values
+  if self.reverse then
+    local APrimeMax, APrimeMaxInds = torch.max(QPrimesCurrent, QPrimesCurrent:dim())
+    local QPrimesTargetCutoff = QPrimesTarget:gather(QPrimesCurrent:dim(), APrimeMaxInds)
+    if QPrimesCurrent:dim() == 3 then
+      actionSets = (QPrimesTarget - QPrimesTargetCutoff:repeatTensor(1, 1, self.m)):ge(0)
+    else
+      actionSets = (QPrimesTarget - QPrimesTargetCutoff:repeatTensor(1, self.m)):ge(0)
+    end 
+  else
+    local APrimeMax, APrimeMaxInds = torch.max(QPrimesTarget, QPrimesTarget:dim())
+    local QPrimesCurrentCutoff = QPrimesCurrent:gather(QPrimesTarget:dim(), APrimeMaxInds)
+    if QPrimesTarget:dim() == 3 then
+      actionSets = (QPrimesCurrent - QPrimesCurrentCutoff:repeatTensor(1, 1, self.m)):ge(0)
+    else
+      actionSets = (QPrimesCurrent - QPrimesCurrentCutoff:repeatTensor(1, self.m)):ge(0)
+    end
+  end
+  return actionSets
+end
+
+
+function Agent:agent_cover(actionSets)
+
+  local num_observation = actionSets:size()[1]
+  local num_agents = actionSets:size()[2]
+  local num_actions = actionSets:size()[3]
+  local submodular_agents = self.Tensor(num_agents):fill(0)
+  local uncovered = self.ByteTensor(num_observation, num_agents, num_agents, num_actions):fill(1)
+  local scores = torch.Tensor(1):fill(-1)
+  local best_agent = 1
+
+  while not (scores:max() == 0) do
+    local agent_cs = torch.reshape(actionSets, num_observation, num_agents, 1, num_actions):repeatTensor(1, 1, num_agents, 1)
+    local aggregate_cs = torch.reshape(actionSets, num_observation, 1, num_agents, num_actions):repeatTensor(1, num_agents, 1, 1)
+    local available_cs = torch.cmul(agent_cs, aggregate_cs):cmul(uncovered)
+  
+    scores = available_cs:max(4):sum(1):sum(3):reshape(num_agents)
+    _, best_agent = scores:max(1)
+  
+    if not (scores:max() == 0) then
+      submodular_agents[best_agent[1]] = 1
+      uncovered = torch.cmul(uncovered, (1 - agent_cs:narrow(2, best_agent[1],1):repeatTensor(1,num_agents,1,1)))
+    end
+  end 
+  return submodular_agents
+end
+
 
 function Agent:sets_cover(actionSets)
   local batchSize = actionSets:size()[1]
@@ -244,15 +306,8 @@ function Agent:observe(reward, rawObservation, terminal)
       end
     else
       -- Retrieve estimates from all heads
-      if self.swarm then
-        local QHeadsCurrent = self.policyNet:forward(state)
-        local QHeadsTarget = self.targetNet:forward(state)
-
-        local QHeadsTargetMax, QHeadsTargetInds = QHeadsTarget:max(2)
-        local QHeadsCurrentCutoff = QHeadsCurrent:gather(2, QHeadsTargetInds)
-        local actionSet = (QHeadsCurrent - QHeadsCurrentCutoff:repeatTensor(1, self.m)):ge(0)
-
-        local swarmActions = self:set_cover(actionSet:cuda())
+      if self.action_coverage then
+        local swarmActions = self:set_cover(self:sample_action_sets(state):cuda())
 
         aIndex = swarmActions[self.head][1]
         swarmMask = swarmActions:eq(aIndex)
@@ -291,11 +346,12 @@ function Agent:observe(reward, rawObservation, terminal)
     local defaultMask = torch.ByteTensor(self.heads):fill(0):scatter(1, torch.LongTensor{self.head}, 1) -- By default, only the current head is unmasked
     local mask = defaultMask:clone()
     if self.bootstraps > 0 then
-      if self.swarmMask then
+      if self.swarm then
         mask = swarmMask
       else
         mask = torch.add(mask:bernoulli(0.5), defaultMask):ge(1) -- Sample a mask for bootstrap using p = 0.5; Given in  https://arxiv.org/pdf/1602.04621.pdf
       end
+      mask = torch.ByteTensor(self.heads):fill(1) -- Remember that nothing is being masked for now.
     end
     self.memory:store(reward, observation, terminal, aIndex, mask)
 
@@ -327,7 +383,12 @@ function Agent:observe(reward, rawObservation, terminal)
   if terminal then
     if self.bootstraps > 0 then
       -- Change bootstrap head for next episode
-      self.head = torch.random(self.bootstraps)
+      if self.agent_coverage then
+        covering_agents = self:agent_cover(self:sample_action_sets())
+        _, self.head = torch.cmul(self.Tensor(covering_agents:size()):uniform(), covering_agents):max(1) 
+      else
+        self.head = torch.random(self.bootstraps) -- Random bootstrap head is selected
+      end
     elseif self.recurrent then
       -- Forget last sequence
       self.policyNet:forget()
@@ -371,8 +432,7 @@ function Agent:learn(x, indices, ISWeights, isValidation)
     -- Find Target best Q-values
     APrimeMax, APrimeMaxInds = torch.max(QPrimesTarget, 3)
     local QPrimesCurrentCutoff = self.QPrimes:gather(3, APrimeMaxInds)
-    -- Perform clustering using approximate greedy set cover
-    local actionSets = (self.QPrimes - QPrimesCurrentCutoff:repeatTensor(1, 1, self.m)):ge(0)	
+    local actionSets = (self.QPrimes - QPrimesCurrentCutoff:repeatTensor(1, 1, self.m)):ge(0)
     local swarmActions = self:sets_cover(actionSets:cuda())
     -- Set indexes as the swarmIndexes
     APrimeMaxInds = swarmActions
@@ -450,7 +510,7 @@ function Agent:learn(x, indices, ISWeights, isValidation)
     loss = torch.mean(sqLoss:pow(2):mul(0.5):add(absLoss:mul(self.tdClip))) -- Average over heads
 
     -- Clip TD-errors δ
-    self.tdErr:clamp(-self.tdClip, self.tdClip)
+    -- self.tdErr:clamp(-self.tdClip, self.tdClip) -- Don't clip as this affects the dTheta to be 0 if beyond the clip region
   else
     -- Squared loss
     loss = torch.mean(self.tdErr:clone():pow(2):mul(0.5)) -- Average over heads
@@ -617,6 +677,17 @@ function Agent:validate()
   gnuplot.movelegend('left', 'top')
   gnuplot.plotflush()
   torch.save(paths.concat(self.experiments, self._id, 'scores.t7'), scores)
+  -- Plot and save average train scores score
+  if #self.trainScores > 0 then
+    local trainScores = torch.Tensor(self.trainScores)
+    gnuplot.pngfigure(paths.concat(self.experiments, self._id, 'trainScores.png'))
+    gnuplot.plot('Score', torch.linspace(1, #self.trainScores, #self.trainScores), trainScores, '-')
+    gnuplot.xlabel('Epoch')
+    gnuplot.ylabel('Average Score')
+    gnuplot.movelegend('left', 'top')
+    gnuplot.plotflush()
+    torch.save(paths.concat(self.experiments, self._id, 'trainScores.t7'), trainScores)
+  end
     -- Plot and save normalised score
   if #self.normScores > 0 then
     local normScores = torch.Tensor(self.normScores)

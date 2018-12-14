@@ -24,11 +24,11 @@ function Experience:_init(capacity, opt, isValidation)
   local bufferStateSize = torch.LongStorage(_.append({opt.batchSize, opt.histLen}, opt.stateSpec[2]))
   self.transTuples = {
     states = opt.Tensor(bufferStateSize),
-    actions = torch.ByteTensor(opt.batchSize),
+    actions = opt.ByteTensor(opt.batchSize),
     masks = opt.Tensor(capacity, self.heads),
     rewards = opt.Tensor(opt.batchSize, 1),
     transitions = opt.Tensor(bufferStateSize),
-    terminals = torch.ByteTensor(opt.batchSize),
+    terminals = opt.ByteTensor(opt.batchSize),
     priorities = opt.Tensor(opt.batchSize)
   }
   self.indices = torch.LongTensor(opt.batchSize)
@@ -39,16 +39,16 @@ function Experience:_init(capacity, opt, isValidation)
   self.imgDiscLevels = 255 -- Number of discretisation levels for images (used for float <-> byte conversion)
   if opt.discretiseMem then
     -- For the standard DQN problem, float vs. byte storage is 24GB vs. 6GB memory, so this prevents/minimises slow swap usage
-    self.states = torch.ByteTensor(stateSize) -- ByteTensor to avoid massive memory usage
+    self.states = opt.ByteTensor(stateSize) -- ByteTensor to avoid massive memory usage
   else
-    self.states = torch.Tensor(stateSize)
+    self.states = opt.Tensor(stateSize)
   end
-  self.actions = torch.ByteTensor(capacity) -- Discrete action indices
+  self.actions = opt.ByteTensor(capacity) -- Discrete action indices
   self.rewards = torch.FloatTensor(capacity) -- Stored at time t (not t + 1)
   -- Terminal conditions stored at time t+1, encoded by 0 = false, 1 = true
-  self.terminals = torch.ByteTensor(capacity):fill(1) -- Filling with 1 prevents going back in history at beginning
+  self.terminals = opt.ByteTensor(capacity):fill(1) -- Filling with 1 prevents going back in history at beginning
   -- Validation flags (used if state is stored without transition)
-  self.invalid = torch.ByteTensor(capacity) -- 1 is used to denote invalid
+  self.invalid = opt.ByteTensor(capacity) -- 1 is used to denote invalid
   -- Internal pointer
   self.masks = opt.Tensor(capacity, self.heads):fill(0)
   -- Masking flags for Bootstrap heads

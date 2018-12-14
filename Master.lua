@@ -109,6 +109,7 @@ function Master:train()
       -- Start a new episode
       episode = episode + 1
       reward, state, terminal = 0, self.env:start(), false
+      self.agent.trainScores[#self.agent.trainScores + 1] = episodeScore
       episodeScore = reward -- Reset episode score
     end
 

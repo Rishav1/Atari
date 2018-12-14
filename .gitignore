@@ -48,3 +48,7 @@ experiments
 scratch/*.jpg
 # Videos
 videos/*.webm
+
+# Temp files
+*.nfs*
+*.log

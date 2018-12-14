@@ -53,6 +53,10 @@ function Setup:_init(arg)
     return torch.Tensor(...)
   end
 
+  self.opt.ByteTensor = function(...)
+    return torch.ByteTensor(...)
+  end
+
   -- GPU setup
   if self.opt.gpu > 0 then
     log.info('Setting up GPU')
@@ -62,6 +66,10 @@ function Setup:_init(arg)
     -- Replace tensor creation function
     self.opt.Tensor = function(...)
       return torch.CudaTensor(...)
+    end
+
+    self.opt.ByteTensor = function(...)
+      return torch.CudaByteTensor(...)
     end
   end
 
@@ -97,6 +105,9 @@ function Setup:parseOptions(arg)
   cmd:option('-duel', 'true', 'Use dueling network architecture (learns advantage function)')
   cmd:option('-bootstraps', 10, 'Number of bootstrap heads (0 to disable)')
   cmd:option('-swarm', 'false', 'Use swarm optimal policy update with bootstrap')
+  cmd:option('-action_coverage', 'false', 'Use action_coverage for aggregating actions')
+  cmd:option('-agent_coverage', 'false', 'Use agent coverage instead of random selection')
+  cmd:option('-reverse', 'false', 'Reverse target and current for action set formulation')
   --cmd:option('-bootstrapMask', 1, 'Independent probability of masking a transition for each bootstrap head ~ Ber(bootstrapMask) (1 to disable)')
   cmd:option('-recurrent', 'false', 'Use recurrent connections')
   -- Experience replay options
@@ -169,6 +180,8 @@ function Setup:parseOptions(arg)
   opt.verbose = opt.verbose == 'true'
   opt.record = opt.record == 'true'
   opt.noValidation = opt.noValidation == 'true'
+  opt.agent_coverage = opt.agent_coverage == 'true'
+  opt.action_coverage = opt.action_coverage == 'true'
 
   -- Process boolean/enum options
   if opt.colorSpace == '' then opt.colorSpace = false end
@@ -248,7 +261,13 @@ function Setup:validateOptions()
   abortIf(self.opt.bootstraps > 0 and _.contains({'rank', 'proportional'}, self.opt.memPriority), 'Prioritized experience replay not possible with bootstrap')
 
   -- Check no swarm policy update without bootstrap
-  abortIf(self.opt.swarm and not (self.opt.bootstraps > 0))
+  abortIf(self.opt.swarm and not (self.opt.bootstraps > 0), 'Cannot do swarm if no bootstraps present')
+
+  -- Check no agent_coverage without bootstrap
+  abortIf(self.opt.agent_coverage and not (self.opt.bootstraps > 0), 'Cannot do agent_coverage if no bootstrap present')
+
+  -- Check no action_coverage update without bootstrap
+  abortIf(self.opt.action_coverage and not (self.opt.bootstraps > 0), 'Cannot do action_coverage if no bootstraps present')
 
   -- Check start of learning occurs after at least 1/100 of memory has been filled
   abortIf(self.opt.learnStart <= self.opt.memSize/100, 'learnStart must be greater than memSize/100')

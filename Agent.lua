@@ -678,10 +678,12 @@ function Agent:validate()
   gnuplot.plotflush()
   torch.save(paths.concat(self.experiments, self._id, 'scores.t7'), scores)
   -- Plot and save average train scores score
-  if #self.trainScores > 0 then
+  if #self.trainScores > 100 then
     local trainScores = torch.Tensor(self.trainScores)
+    local numScores = torch.floor(trainScores:size(1) / 100)
+    local newTrainScores = trainScores:gather(1, torch.LongTensor():range(1, 100 * numScores)):reshape(numScores, 100):mean(2):reshape(numScores)
     gnuplot.pngfigure(paths.concat(self.experiments, self._id, 'trainScores.png'))
-    gnuplot.plot('Score', torch.linspace(1, #self.trainScores, #self.trainScores), trainScores, '-')
+    gnuplot.plot('Score', torch.range(1, newTrainScores:size(1)), newTrainScores, '-')
     gnuplot.xlabel('Epoch')
     gnuplot.ylabel('Average Score')
     gnuplot.movelegend('left', 'top')

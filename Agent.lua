@@ -31,7 +31,7 @@ function Agent:_init(opt)
   self.targetNet = self.policyNet:clone() -- Create deep copy for target network
   self.targetNet:evaluate() -- Target network always in evaluation mode
   self.tau = opt.tau
-  self.doubleQ = opt.doubleQ
+  self.doubleQ = opt.updateOp == 'doubleQ'
   -- Network parameters θ and gradients dθ
   self.theta, self.dTheta = self.policyNet:getParameters()
 
@@ -39,9 +39,9 @@ function Agent:_init(opt)
   self.bootstraps = opt.bootstraps
   self.head = 1 -- Identity of current episode bootstrap head
   self.heads = math.max(opt.bootstraps, 1) -- Number of heads
-  self.swarm = opt.swarm
-  self.action_coverage = opt.action_coverage
-  self.agent_coverage = opt.agent_coverage
+  self.updateOp = opt.updateOp
+  self.actionCoverage = opt.actionCoverage
+  self.agentCoverage = opt.agentCoverage
   self.reverse = opt.reverse
   -- Recurrency
   self.recurrent = opt.recurrent
@@ -94,6 +94,7 @@ function Agent:_init(opt)
   self.normScores = {} -- Normalised validation scores (passed from main script)
 
   -- Tensor creation
+  self.cuda = opt.gpu > 0
   self.Tensor = opt.Tensor
   self.ByteTensor = opt.ByteTensor
 
@@ -175,7 +176,6 @@ end
 
 
 function Agent:agent_cover(actionSets)
-
   local num_observation = actionSets:size()[1]
   local num_agents = actionSets:size()[2]
   local num_actions = actionSets:size()[3]
@@ -209,6 +209,12 @@ function Agent:sets_cover(actionSets)
   local notCovered = self.Tensor(batchSize, nheads, 1):fill(1)
   local cover = self.Tensor(batchSize, 1, nactions):fill(0)
 
+  if self.cuda then
+    actionSets = actionSets:cuda()
+  else
+    actionSets = actionSets:float()
+  end
+
   while not torch.all(notCovered:eq(notInUniverse)) do
     local allowedActions = torch.cmul(actionSets, notCovered:repeatTensor(1, 1, nactions))
     local _, maxIndexes = allowedActions:sum(2):max(3)
@@ -216,7 +222,8 @@ function Agent:sets_cover(actionSets)
     notCovered = torch.cmul(notCovered, 1 - actionSets:gather(3, maxIndexes:repeatTensor(1, nheads, 1)))
   end
  
-  local _, swarmActions = torch.max(torch.cmul(actionSets, cover:repeatTensor(1, nheads, 1)), 3)
+  local tieBreaker = self.Tensor(batchSize, nheads, nactions):uniform()
+  local _, swarmActions = torch.max(torch.cmul(actionSets, cover:repeatTensor(1, nheads, 1)):cmul(tieBreaker), 3)
 
   return swarmActions
 end
@@ -228,6 +235,12 @@ function Agent:set_cover(actionSet)
   local notCovered = self.Tensor(nheads, 1):fill(1)
   local cover = self.Tensor(1, nactions):fill(0)
 
+  if self.cuda then
+    actionSet = actionSet:cuda()
+  else
+    actionSet = actionSet:float()
+  end
+
   while not torch.all(notCovered:eq(notInUniverse)) do
     local allowedActions = torch.cmul(actionSet, notCovered:repeatTensor(1, nactions))
     local _, maxIndex = allowedActions:sum(1):max(2)
@@ -235,9 +248,9 @@ function Agent:set_cover(actionSet)
     notCovered = torch.cmul(notCovered, 1 - actionSet:select(2, maxIndex[1][1]))
   end
 
-  local _, swarmActions = torch.max(torch.cmul(actionSet, cover:repeatTensor(nheads, 1)), 2)
-
-  return swarmActions
+  -- local tieBreaker = self.Tensor(nheads, nactions):uniform()
+  -- local _, swarmActions = torch.max(torch.cmul(actionSet, cover:repeatTensor(nheads, 1)):cmul(tieBreaker), 2)
+  return cover:reshape(nactions)
 end
 
 -- Observes the results of the previous transition and chooses the next action to perform
@@ -306,12 +319,11 @@ function Agent:observe(reward, rawObservation, terminal)
       end
     else
       -- Retrieve estimates from all heads
-      if self.action_coverage then
-        local swarmActions = self:set_cover(self:sample_action_sets(state):cuda())
-
-        aIndex = swarmActions[self.head][1]
+      if self.actionCoverage then
+        local swarmActions = self:set_cover(self:sample_action_sets(state))
+        _, aIndex = swarmActions:cmul(self.Tensor(swarmActions:size()):uniform()):max(1)
+        aIndex = aIndex[1]
         swarmMask = swarmActions:eq(aIndex)
-
       else
         local QHeads = self.policyNet:forward(state)
 
@@ -346,11 +358,7 @@ function Agent:observe(reward, rawObservation, terminal)
     local defaultMask = torch.ByteTensor(self.heads):fill(0):scatter(1, torch.LongTensor{self.head}, 1) -- By default, only the current head is unmasked
     local mask = defaultMask:clone()
     if self.bootstraps > 0 then
-      if self.swarm then
-        mask = swarmMask
-      else
-        mask = torch.add(mask:bernoulli(0.5), defaultMask):ge(1) -- Sample a mask for bootstrap using p = 0.5; Given in  https://arxiv.org/pdf/1602.04621.pdf
-      end
+      -- mask = torch.add(mask:bernoulli(0.5), defaultMask):ge(1) -- Sample a mask for bootstrap using p = 0.5; Given in  https://arxiv.org/pdf/1602.04621.pdf
       mask = torch.ByteTensor(self.heads):fill(1) -- Remember that nothing is being masked for now.
     end
     self.memory:store(reward, observation, terminal, aIndex, mask)
@@ -383,9 +391,10 @@ function Agent:observe(reward, rawObservation, terminal)
   if terminal then
     if self.bootstraps > 0 then
       -- Change bootstrap head for next episode
-      if self.agent_coverage then
+      if self.agentCoverage then
         covering_agents = self:agent_cover(self:sample_action_sets())
-        _, self.head = torch.cmul(self.Tensor(covering_agents:size()):uniform(), covering_agents):max(1) 
+        _, self.head = torch.cmul(self.Tensor(covering_agents:size()):uniform(), covering_agents):max(1)
+        self.head = self.head[1]
       else
         self.head = torch.random(self.bootstraps) -- Random bootstrap head is selected
       end
@@ -424,7 +433,7 @@ function Agent:learn(x, indices, ISWeights, isValidation)
 
   -- Perform argmax action selection
   local APrimeMax, APrimeMaxInds
-  if self.swarm then
+  if self.updateOp == 'swarm' then
     -- Calculate Q-values using target network
     local QPrimesTarget = self.targetNet:forward(transitions)
     -- Calculate Q-values using policy network
@@ -433,18 +442,17 @@ function Agent:learn(x, indices, ISWeights, isValidation)
     APrimeMax, APrimeMaxInds = torch.max(QPrimesTarget, 3)
     local QPrimesCurrentCutoff = self.QPrimes:gather(3, APrimeMaxInds)
     local actionSets = (self.QPrimes - QPrimesCurrentCutoff:repeatTensor(1, 1, self.m)):ge(0)
-    local swarmActions = self:sets_cover(actionSets:cuda())
+    local swarmActions = self:sets_cover(actionSets)
     -- Set indexes as the swarmIndexes
     APrimeMaxInds = swarmActions
-
-  elseif self.doubleQ then
+  elseif self.updateOp == 'doubleQ' then
     -- Calculate Q-values from transition using policy network
     self.QPrimes = self.policyNet:forward(transitions) -- Find argmax actions using policy network
     -- Perform argmax action selection on transition using policy network: argmax_a[Q(s', a; θpolicy)]
     APrimeMax, APrimeMaxInds = torch.max(self.QPrimes, 3)
     -- Calculate Q-values from transition using target network
     self.QPrimes = self.targetNet:forward(transitions) -- Evaluate Q-values of argmax actions using target network
-  else
+  elseif self.updateOp == 'bellman' then
     -- Calculate Q-values from transition using target network
     self.QPrimes = self.targetNet:forward(transitions) -- Find and evaluate Q-values of argmax actions using target network
     -- Perform argmax action selection on transition using target network: argmax_a[Q(s', a; θtarget)]

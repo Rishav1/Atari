@@ -104,9 +104,9 @@ function Setup:parseOptions(arg)
   cmd:option('-histLen', 4, 'Number of consecutive states processed/used for backpropagation-through-time') -- DQN standard is 4, DRQN is 10
   cmd:option('-duel', 'true', 'Use dueling network architecture (learns advantage function)')
   cmd:option('-bootstraps', 10, 'Number of bootstrap heads (0 to disable)')
-  cmd:option('-swarm', 'false', 'Use swarm optimal policy update with bootstrap')
-  cmd:option('-action_coverage', 'false', 'Use action_coverage for aggregating actions')
-  cmd:option('-agent_coverage', 'false', 'Use agent coverage instead of random selection')
+  cmd:option('-updateOp', 'doubleQ', 'Update operation to use: bellman|swarm|doubleQ')
+  cmd:option('-actionCoverage', 'false', 'Use action coverage for aggregating actions')
+  cmd:option('-agentCoverage', 'false', 'Use agent coverage instead of random selection')
   cmd:option('-reverse', 'false', 'Reverse target and current for action set formulation')
   --cmd:option('-bootstrapMask', 1, 'Independent probability of masking a transition for each bootstrap head ~ Ber(bootstrapMask) (1 to disable)')
   cmd:option('-recurrent', 'false', 'Use recurrent connections')
@@ -126,7 +126,6 @@ function Setup:parseOptions(arg)
   cmd:option('-tau', 30000, 'Steps between target net updates τ') -- Tuned DDQN target net update interval (3x that of DQN)
   cmd:option('-rewardClip', 1, 'Clips reward magnitude at rewardClip (0 to disable)')
   cmd:option('-tdClip', 1, 'Clips TD-error δ magnitude at tdClip (0 to disable)')
-  cmd:option('-doubleQ', 'true', 'Use Double Q-learning')
   -- Note from Georg Ostrovski: The advantage operators and Double DQN are not entirely orthogonal as the increased action gap seems to reduce the statistical bias that leads to value over-estimation in a similar way that Double DQN does
   cmd:option('-PALpha', 0.9, 'Persistent advantage learning parameter α (0 to disable)')
   -- Training options
@@ -171,17 +170,16 @@ function Setup:parseOptions(arg)
   opt.duel = opt.duel == 'true'
   opt.recurrent = opt.recurrent == 'true'
   opt.discretiseMem = opt.discretiseMem == 'true'
-  opt.doubleQ = opt.doubleQ == 'true'
   opt.reportWeights = opt.reportWeights == 'true'
-  opt.swarm = opt.swarm == 'true'
   opt.fullActions = opt.fullActions == 'true'
   opt.lifeLossTerminal = opt.lifeLossTerminal == 'true'
   opt.checkpoint = opt.checkpoint == 'true'
   opt.verbose = opt.verbose == 'true'
   opt.record = opt.record == 'true'
   opt.noValidation = opt.noValidation == 'true'
-  opt.agent_coverage = opt.agent_coverage == 'true'
-  opt.action_coverage = opt.action_coverage == 'true'
+  opt.agentCoverage = opt.agentCoverage == 'true'
+  opt.actionCoverage = opt.actionCoverage == 'true'
+  opt.reverse = opt.reverse == 'true'
 
   -- Process boolean/enum options
   if opt.colorSpace == '' then opt.colorSpace = false end
@@ -260,14 +258,20 @@ function Setup:validateOptions()
   -- Check no prioritized replay is done when bootstrap
   abortIf(self.opt.bootstraps > 0 and _.contains({'rank', 'proportional'}, self.opt.memPriority), 'Prioritized experience replay not possible with bootstrap')
 
+  -- Check update operator is correct
+  abortIf(self.opt.updateOp and not _.contains({'bellman', 'doubleQ', 'swarm'}, self.opt.updateOp), 'Type of update operator not recognized')
+
   -- Check no swarm policy update without bootstrap
-  abortIf(self.opt.swarm and not (self.opt.bootstraps > 0), 'Cannot do swarm if no bootstraps present')
+  abortIf(self.opt.updateOp == 'swarm' and not (self.opt.bootstraps > 0), 'Cannot do swarm if no bootstraps present')
 
-  -- Check no agent_coverage without bootstrap
-  abortIf(self.opt.agent_coverage and not (self.opt.bootstraps > 0), 'Cannot do agent_coverage if no bootstrap present')
+  -- Check no agentCoverage without bootstrap
+  abortIf(self.opt.agentCoverage and not (self.opt.bootstraps > 0), 'Cannot do agent_coverage if no bootstrap present')
 
-  -- Check no action_coverage update without bootstrap
-  abortIf(self.opt.action_coverage and not (self.opt.bootstraps > 0), 'Cannot do action_coverage if no bootstraps present')
+  -- Check no actionCoverage update without bootstrap
+  abortIf(self.opt.actionCoverage and not (self.opt.bootstraps > 0), 'Cannot do actionCoverage if no bootstraps present')
+
+  -- Check no actionCoverage update with actionCoverage
+  abortIf(self.opt.actionCoverage and self.opt.agentCoverage, 'Cannot do agent_coverage and actionCoverage simultaneously')
 
   -- Check start of learning occurs after at least 1/100 of memory has been filled
   abortIf(self.opt.learnStart <= self.opt.memSize/100, 'learnStart must be greater than memSize/100')
@@ -291,7 +295,7 @@ function Setup:validateOptions()
     abortIf(self.opt.PALpha > 0, 'Persistent advantage learning not supported in async modes yet')
     abortIf(self.opt.bootstraps > 0, 'Bootstrap heads not supported in async mode yet')
     abortIf(self.opt.async == 'A3C' and self.opt.duel, 'Dueling networks and A3C are incompatible')
-    abortIf(self.opt.async == 'A3C' and self.opt.doubleQ, 'Double Q-learning and A3C are incompatible')
+    abortIf(self.opt.async == 'A3C' and self.opt.updaeOp == 'doubleQ', 'Double Q-learning and A3C are incompatible')
     abortIf(self.opt.saliency, 'Saliency maps not supported in async modes yet')
   end
 end

@@ -19,7 +19,7 @@ function QAgent:_init(opt, policyNet, targetNet, theta, targetTheta, atomic, sha
   self.dTheta = nn.Module.flatten(gradParams)
   self.dTheta:zero()
 
-  self.doubleQ = opt.doubleQ
+  self.doubleQ = opt.updateOp == "doubleQ"
 
   self.epsilonStart = opt.epsilonStart
   self.epsilon = self.epsilonStart
